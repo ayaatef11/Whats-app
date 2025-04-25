@@ -1,0 +1,291 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>WhatsApp-Like Chat</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            background-color: #f0f0f0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .header {
+            background-color: #075e54;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .status {
+            text-align: center;
+            padding: 5px;
+            color: #555;
+        }
+
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+            background-color: #e5ddd5;
+        }
+
+        .message {
+            margin: 10px;
+            padding: 10px;
+            border-radius: 8px;
+            max-width: 70%;
+            word-wrap: break-word;
+        }
+
+            .message.received {
+                background-color: #fff;
+                align-self: flex-start;
+            }
+
+            .message.sent {
+                background-color: #dcf8c6;
+                align-self: flex-end;
+                margin-left: auto;
+            }
+
+        .input-container {
+            display: flex;
+            padding: 10px;
+            background-color: #fff;
+            border-top: 1px solid #ddd;
+        }
+
+            .input-container input {
+                flex: 1;
+                padding: 10px;
+                border: none;
+                border-radius: 20px;
+                margin-right: 10px;
+                background-color: #f6f6f6;
+            }
+
+            .input-container button {
+                padding: 10px;
+                border: none;
+                background-color: #075e54;
+                color: white;
+                border-radius: 20px;
+                cursor: pointer;
+            }
+
+                .input-container button:hover {
+                    background-color: #064c44;
+                }
+
+        .controls {
+            padding: 10px;
+            background-color: #fff;
+            border-top: 1px solid #ddd;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+            .controls input {
+                padding: 10px;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                flex: 1;
+                min-width: 100px;
+            }
+
+            .controls button {
+                padding: 10px 20px;
+                border: none;
+                background-color: #075e54;
+                color: white;
+                border-radius: 5px;
+                cursor: pointer;
+            }
+
+                .controls button:hover {
+                    background-color: #064c44;
+                }
+    </style>
+</head>
+<body>
+    <div class="header">Chat Application</div>
+    <div class="status" id="connectionStatus">Disconnected</div>
+    <div class="chat-container" id="chatContainer"></div>
+    <div class="input-container">
+        <input type="text" id="messageInput" placeholder="Type a message..." disabled />
+        <button onclick="sendMessage()" disabled>Send</button>
+    </div>
+    <div class="controls">
+        <input type="text" id="usernameInput" placeholder="Enter username" />
+        <button onclick="authenticate()">Authenticate</button>
+        <input type="text" id="roomInput" placeholder="Enter room name" />
+        <button onclick="createRoom()">Create Room</button>
+        <button onclick="listRooms()">List Rooms</button>
+        <button onclick="joinRoom()">Join Room</button>
+        <button onclick="leaveRoom()">Leave Room</button>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/6.0.1/signalr.min.js"></script>
+    <script>
+        let connection = null;
+        let currentRoom = '';
+        let username = '';
+
+        // Initialize SignalR connection
+        function initializeConnection() {
+            connection = new signalR.HubConnectionBuilder()
+                .withUrl("/chat")
+                .build();
+
+            // Handle incoming messages
+            connection.on('send_message', (message) => {
+                const chatContainer = document.getElementById('chatContainer');
+                const messageElement = document.createElement('div');
+                messageElement.classList.add('message', 'received');
+                messageElement.textContent = `${message.sender}: ${message.content}`;
+                chatContainer.appendChild(messageElement);
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            });
+        }
+
+        // Authenticate user
+        function authenticate() {
+            const usernameInput = document.getElementById('usernameInput');
+            username = usernameInput.value.trim();
+            if (!username) {
+                alert('Please enter a username');
+                return;
+            }
+            fetch('/auth?username=' + encodeURIComponent(username))
+                .then(response => {
+                    if (response.ok) {
+                        document.getElementById('connectionStatus').textContent = `Authenticated as ${username}`;
+                        initializeConnection();
+                    } else {
+                        alert('Authentication failed');
+                    }
+                })
+                .catch(err => {
+                    alert('Authentication error');
+                    console.error(err);
+                });
+        }
+
+        // Send message
+        function sendMessage() {
+            const messageInput = document.getElementById('messageInput');
+            const message = messageInput.value.trim();
+            if (!message) return;
+            if (!currentRoom) {
+                alert('Please join a room first');
+                return;
+            }
+            connection.send('SendMessage', { message, room: currentRoom })
+                .then(() => {
+                    const chatContainer = document.getElementById('chatContainer');
+                    const messageElement = document.createElement('div');
+                    messageElement.classList.add('message', 'sent');
+                    messageElement.textContent = `${username}: ${message}`;
+                    chatContainer.appendChild(messageElement);
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                    messageInput.value = '';
+                });
+        }
+
+        // Create room
+        function createRoom() {
+            const roomInput = document.getElementById('roomInput');
+            const room = roomInput.value.trim();
+            if (!room) {
+                alert('Please enter a room name');
+                return;
+            }
+            fetch('/create?room=' + encodeURIComponent(room))
+                .then(response => {
+                    if (response.ok) {
+                        alert(`Room ${room} created`);
+                    } else {
+                        alert('Failed to create room');
+                    }
+                });
+        }
+
+        // List rooms
+        function listRooms() {
+            fetch('/list')
+                .then(r => r.json())
+                .then(rooms => {
+                    alert('Available rooms: ' + rooms.join(', '));
+                    console.log("rooms", rooms);
+                });
+        }
+
+        // Join room
+        function joinRoom() {
+            const roomInput = document.getElementById('roomInput');
+            const room = roomInput.value.trim();
+            if (!room) {
+                alert('Please enter a room name');
+                return;
+            }
+            if (!connection) {
+                alert('Please authenticate first');
+                return;
+            }
+            connection.start()
+                .then(() => connection.invoke('JoinRoom', { room }))
+                .then((history) => {
+                    currentRoom = room;
+                    document.getElementById('connectionStatus').textContent = `In room: ${room}`;
+                    document.getElementById('messageInput').disabled = false;
+                    document.querySelector('.input-container button').disabled = false;
+                    const chatContainer = document.getElementById('chatContainer');
+                    chatContainer.innerHTML = ''; // Clear previous messages
+                    history.forEach(msg => {
+                        const messageElement = document.createElement('div');
+                        messageElement.classList.add('message', 'received');
+                        messageElement.textContent = `${msg.sender}: ${msg.content}`;
+                        chatContainer.appendChild(messageElement);
+                    });
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                })
+                .catch(err => {
+                    alert('Failed to join room');
+                    console.error(err);
+                });
+        }
+
+        // Leave room
+        function leaveRoom() {
+            if (!currentRoom) {
+                alert('Not in a room');
+                return;
+            }
+            connection.send('LeaveRoom', { room: currentRoom })
+                .then(() => {
+                    currentRoom = '';
+                    connection.off('send_message');
+                    document.getElementById('connectionStatus').textContent = 'Disconnected';
+                    document.getElementById('messageInput').disabled = true;
+                    document.querySelector('.input-container button').disabled = true;
+                    document.getElementById('chatContainer').innerHTML = '';
+                    return connection.stop();
+                });
+        }
+
+        // Send message with Enter key
+        document.getElementById('messageInput').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+</html>

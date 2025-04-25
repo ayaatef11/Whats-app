@@ -1,0 +1,170 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>WhatsApp SignalR Authentication Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background-color: #f0f2f5; /* لون الخلفية الرمادي الفاتح مثل WhatsApp */
+            margin: 0;
+        }
+
+        h2 {
+            color: #075e54; /* اللون الأخضر الداكن للعناوين مثل WhatsApp */
+            text-align: center;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .button-container {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        button {
+            padding: 10px 20px;
+            background-color: #25d366; /* اللون الأخضر مثل أزرار WhatsApp */
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.3s;
+        }
+
+            button:hover {
+                background-color: #20b858; /* لون أخضر أغمق عند التمرير */
+            }
+
+        #output {
+            background-color: white; /* خلفية بيضاء لمنطقة الرسائل */
+            border-radius: 10px;
+            padding: 15px;
+            height: 400px;
+            overflow-y: auto;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+            #output p {
+                margin: 5px 0;
+                padding: 8px 12px;
+                background-color: #e9ecef; /* لون رمادي فاتح للرسائل */
+                border-radius: 10px;
+                display: inline-block;
+                max-width: 70%;
+                word-wrap: break-word;
+            }
+
+                #output p:nth-child(odd) {
+                    background-color: #dcf8c6; /* لون أخضر فاتح للرسائل الصادرة مثل WhatsApp */
+                    margin-left: auto;
+                    text-align: right;
+                }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>WhatsApp SignalR Authentication Test</h2>
+        <div class="button-container">
+            <button onclick="connect()">Connect to Hub</button>
+            <button onclick="getResource()">Get Authorized Resource</button>
+            <button onclick="stressTest()">Stress Test (20 Requests)</button>
+        </div>
+        <div id="output"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/6.0.1/signalr.min.js"></script>
+    <script>
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl('/protected')
+            .withAutomaticReconnect()
+            .build();
+
+        const output = document.getElementById('output');
+        const log = (message) => {
+            output.innerHTML += `<p>${new Date().toLocaleTimeString()} - ${message}</p>`;
+            output.scrollTop = output.scrollHeight;
+        };
+
+        const connect = async () => {
+            try {
+                log('Connecting to Hub...');
+                await connection.start();
+                log('Connected successfully!');
+            } catch (err) {
+                log(`Connection failed: ${err.message}`);
+            }
+        };
+
+        const getCookie = async () => {
+            try {
+                const response = await fetch('/get-cookie');
+                if (response.ok) {
+                    log('Cookie retrieved successfully');
+                } else {
+                    log('Failed to retrieve cookie');
+                }
+            } catch (err) {
+                log(`Error retrieving cookie: ${err.message}`);
+            }
+        };
+
+        let connectionRecreation = null;
+        const catchAuthError = (action) => async () => {
+            try {
+                await action();
+            } catch (err) {
+                if (connection.state !== signalR.HubConnectionState.Connected && connectionRecreation) {
+                    log('Queueing request due to disconnected state...');
+                    await connectionRecreation;
+                    await action();
+                } else if (err.message.includes('auth_expired')) {
+                    log('Auth expired error detected');
+                    if (!connectionRecreation) {
+                        connectionRecreation = (async () => {
+                            try {
+                                await connection.stop();
+                                log('Connection stopped');
+                                await getCookie();
+                                await connect();
+                                log('Connection recreated');
+                            } finally {
+                                connectionRecreation = null;
+                            }
+                        })();
+                        await connectionRecreation;
+                        await action();
+                    } else {
+                        await connectionRecreation;
+                        await action();
+                    }
+                } else {
+                    log(`Error: ${err.message}`);
+                    throw err;
+                }
+            }
+        };
+
+        const getResource = catchAuthError(async () => {
+            const result = await connection.invoke('AuthorizedResource');
+            log(`Authorized Resource: ${result}`);
+        });
+
+        const stressTest = async () => {
+            log('Starting stress test...');
+            for (let i = 0; i < 20; i++) {
+                await getResource();
+                await new Promise(resolve => setTimeout(resolve, 100)); // تأخير بسيط بين الطلبات
+            }
+            log('Stress test completed');
+        };
+    </script>
+</body>
+</html>
